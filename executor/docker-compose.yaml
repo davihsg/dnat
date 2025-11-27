@@ -3,8 +3,10 @@
 # This docker-compose runs:
 # - Hardhat (local blockchain)
 # - IPFS node (stores encrypted data)
-# - Executor API (receives execution requests)
 # - LAS (SCONE Local Attestation Service)
+# - Enclave image (built for execution)
+#
+# The Executor API runs outside Docker (./run-api.sh) to spawn enclave containers.
 #
 # Access from local machine via SSH tunnel:
 #   ssh -L 8080:localhost:8080 -L 5001:localhost:5001 -L 8081:localhost:8081 -L 8545:localhost:8545 user@vm
@@ -37,34 +39,6 @@ services:
       - ipfs_data:/data/ipfs
     environment:
       - IPFS_PROFILE=server
-
-  # ===========================================
-  # Executor API - Receives execution requests
-  # ===========================================
-  api:
-    build: ./api
-    container_name: dnat-executor-api
-    ports:
-      - "8081:8081"
-    environment:
-      PORT: "8081"
-      DEBUG: "true"
-      BLOCKCHAIN_RPC: "http://hardhat:8545"
-      CONTRACT_ADDRESS: "${CONTRACT_ADDRESS:-0x5FbDB2315678afecb367f032d93F642f64180aa3}"
-      IPFS_GATEWAY: "http://ipfs:8080/ipfs"
-      ENCLAVE_IMAGE: "dnat-enclave"
-      CAS_URL: "scone-cas.cf"
-      SCONE_CONFIG_ID: "${SCONE_CONFIG_ID:-}"
-    volumes:
-      - ./api/enclave:/app/enclave
-      - ./certs:/app/certs:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp:/tmp
-    depends_on:
-      - ipfs
-      - hardhat
-      - las
-      - enclave
 
   # ===========================================
   # SCONE LAS - Local Attestation Service
