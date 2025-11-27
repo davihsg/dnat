@@ -25,7 +25,7 @@ export interface ExecutionResult {
 }
 
 // Executor API endpoint - configure based on your deployment
-const EXECUTOR_API_URL = process.env.NEXT_PUBLIC_EXECUTOR_URL || "http://localhost:8082";
+const EXECUTOR_API_URL = process.env.NEXT_PUBLIC_EXECUTOR_URL || "http://localhost:8081";
 
 /**
  * Request execution of an application over a dataset in the SGX enclave

@@ -49,6 +49,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./api/enclave:/app/enclave
+      - ./certs:/app/certs:ro
     depends_on:
       - ipfs
 

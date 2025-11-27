@@ -39,7 +39,7 @@ services:
       - /app/node_modules
     environment:
       # Executor API via SSH tunnel
-      NEXT_PUBLIC_EXECUTOR_URL: "http://localhost:8082"
+      NEXT_PUBLIC_EXECUTOR_URL: "http://localhost:8081"
     command: ["sh", "-c", "npm install && npm run dev"]
     depends_on:
       - hardhat
