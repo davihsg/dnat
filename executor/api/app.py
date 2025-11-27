@@ -13,15 +13,31 @@ the SGX enclave execution flow:
 """
 
 import os
+import sys
 import json
 import subprocess
 import tempfile
+import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from web3 import Web3
 
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
+
+# Disable buffering
+sys.stdout.reconfigure(line_buffering=True)
+
 app = Flask(__name__)
 CORS(app)
+
+# Local key storage (for testing - in production, keys come from CAS after attestation)
+KEY_STORE = {}
 
 # Configuration
 BLOCKCHAIN_RPC = os.environ.get("BLOCKCHAIN_RPC", "http://localhost:8545")
@@ -110,7 +126,7 @@ def check_access(user: str, dataset_uri: str, app_uri: str) -> bool:
         return False
 
 
-def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) -> dict:
+def run_in_enclave(dataset_data: bytes, app_data: bytes, dataset_key: str, app_key: str, params: dict = None) -> dict:
     """
     Run the application over the dataset inside the SGX enclave.
     
@@ -121,7 +137,7 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
     4. Second enclave runs execution
     5. Returns results
     
-    For now, we simulate this by calling the enclave script directly.
+    For now, we pass keys directly (in production, CAS provides them after attestation).
     """
     # Create temp files for the encrypted data
     with tempfile.NamedTemporaryFile(delete=False, suffix=".enc") as dataset_file:
@@ -133,8 +149,11 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
         app_path = app_file.name
     
     try:
-        # In production, this would call the SCONE enclave
-        # For now, we'll use a subprocess that simulates the enclave behavior
+        # Set up environment with keys (in production, CAS injects these)
+        env = os.environ.copy()
+        env["DATASET_KEY"] = dataset_key
+        env["APP_KEY"] = app_key
+        
         result = subprocess.run(
             [
                 "python3", f"{ENCLAVE_PATH}/execute.py",
@@ -144,7 +163,8 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
             ],
             capture_output=True,
             text=True,
-            timeout=300  # 5 minute timeout
+            timeout=300,
+            env=env
         )
         
         return {
@@ -190,23 +210,23 @@ def cas_upload():
         session_name = data.get("sessionName")
         session_yaml = data.get("sessionYAML")
         
-        print(f"[CAS] Upload request for session: {session_name}")
+        logger.info(f"[CAS] Upload request for session: {session_name}")
         
         if not session_yaml:
-            print("[CAS] Error: Missing sessionYAML")
+            logger.error("[CAS] Error: Missing sessionYAML")
             return jsonify({"success": False, "error": "Missing sessionYAML"}), 400
         
-        print(f"[CAS] Session YAML length: {len(session_yaml)} bytes")
-        print(f"[CAS] CAS URL: {CAS_URL}")
-        print(f"[CAS] Cert path: {CAS_CERT} (exists: {os.path.exists(CAS_CERT)})")
-        print(f"[CAS] Key path: {CAS_KEY} (exists: {os.path.exists(CAS_KEY)})")
+        logger.info(f"[CAS] Session YAML length: {len(session_yaml)} bytes")
+        logger.info(f"[CAS] CAS URL: {CAS_URL}")
+        logger.info(f"[CAS] Cert path: {CAS_CERT} (exists: {os.path.exists(CAS_CERT)})")
+        logger.info(f"[CAS] Key path: {CAS_KEY} (exists: {os.path.exists(CAS_KEY)})")
         
         if not os.path.exists(CAS_CERT):
-            print(f"[CAS] Error: Certificate not found at {CAS_CERT}")
+            logger.error(f"[CAS] Error: Certificate not found at {CAS_CERT}")
             return jsonify({"success": False, "error": f"Certificate not found: {CAS_CERT}"}), 500
         
         if not os.path.exists(CAS_KEY):
-            print(f"[CAS] Error: Key not found at {CAS_KEY}")
+            logger.error(f"[CAS] Error: Key not found at {CAS_KEY}")
             return jsonify({"success": False, "error": f"Key not found: {CAS_KEY}"}), 500
         
         # Save to temp file
@@ -214,7 +234,7 @@ def cas_upload():
             f.write(session_yaml)
             yaml_path = f.name
         
-        print(f"[CAS] Saved session to temp file: {yaml_path}")
+        logger.info(f"[CAS] Saved session to temp file: {yaml_path}")
         
         # Upload to CAS using curl
         cmd = [
@@ -225,26 +245,42 @@ def cas_upload():
             "-X", "POST",
             f"https://{CAS_URL}:8081/session"
         ]
-        print(f"[CAS] Running: {' '.join(cmd)}")
+        logger.info(f"[CAS] Running: {' '.join(cmd)}")
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         
         os.unlink(yaml_path)
         
-        print(f"[CAS] curl exit code: {result.returncode}")
-        print(f"[CAS] curl stdout: {result.stdout}")
-        print(f"[CAS] curl stderr: {result.stderr}")
+        logger.info(f"[CAS] curl exit code: {result.returncode}")
+        logger.info(f"[CAS] curl stdout: {result.stdout}")
+        logger.info(f"[CAS] curl stderr: {result.stderr}")
         
         response_text = result.stdout
         if "hash" in response_text or "Created Session" in response_text:
-            print(f"[CAS] Success! Session uploaded: {session_name}")
+            logger.info(f"[CAS] Success! Session uploaded: {session_name}")
+            
+            # Also store key locally for testing (extract from session YAML)
+            # Parse the key from the YAML
+            import re
+            key_match = re.search(r'value:\s*"([^"]+)"', session_yaml)
+            ipfs_match = re.search(r'dnat-(dataset|application)-(\w+)', session_name)
+            if key_match and ipfs_match:
+                asset_type = ipfs_match.group(1)
+                ipfs_hash = ipfs_match.group(2)
+                KEY_STORE[ipfs_hash] = {
+                    "key": key_match.group(1),
+                    "type": asset_type,
+                    "sessionName": session_name
+                }
+                logger.info(f"[CAS] Stored key locally for {asset_type} {ipfs_hash}")
+            
             return jsonify({"success": True, "sessionName": session_name, "response": response_text})
         else:
-            print(f"[CAS] Failed! Response: {response_text}")
+            logger.error(f"[CAS] Failed! Response: {response_text}")
             return jsonify({"success": False, "error": response_text or result.stderr or "Unknown error"}), 500
             
     except Exception as e:
-        print(f"[CAS] Exception: {e}")
+        logger.exception(f"[CAS] Exception: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
@@ -267,25 +303,25 @@ def execute():
     
     try:
         data = request.json
-        print(f"[EXEC] Received request: {data}")
+        logger.info(f"[EXEC] Received request: {data}")
         
         dataset_id = int(data.get("datasetId"))
         application_id = int(data.get("applicationId"))
         user_address = data.get("userAddress")
         params = data.get("params", {})
         
-        print(f"[EXEC] Parsed: dataset={dataset_id}, app={application_id}, user={user_address}")
-        print(f"[EXEC] Config: BLOCKCHAIN_RPC={BLOCKCHAIN_RPC}")
-        print(f"[EXEC] Config: CONTRACT_ADDRESS={CONTRACT_ADDRESS}")
-        print(f"[EXEC] Config: IPFS_GATEWAY={IPFS_GATEWAY}")
+        logger.info(f"[EXEC] Parsed: dataset={dataset_id}, app={application_id}, user={user_address}")
+        logger.info(f"[EXEC] Config: BLOCKCHAIN_RPC={BLOCKCHAIN_RPC}")
+        logger.info(f"[EXEC] Config: CONTRACT_ADDRESS={CONTRACT_ADDRESS}")
+        logger.info(f"[EXEC] Config: IPFS_GATEWAY={IPFS_GATEWAY}")
         
         # Step 1: Fetch asset info from blockchain
-        print("[EXEC] Step 1: Fetching asset info from blockchain...")
+        logger.info("[EXEC] Step 1: Fetching asset info from blockchain...")
         try:
             dataset_info = get_asset_info(dataset_id)
-            print(f"[EXEC] Dataset info: {dataset_info}")
+            logger.info(f"[EXEC] Dataset info: {dataset_info}")
         except Exception as e:
-            print(f"[EXEC] Error fetching dataset info: {e}")
+            logger.error(f"[EXEC] Error fetching dataset info: {e}")
             traceback.print_exc()
             return jsonify({"success": False, "error": f"Failed to fetch dataset info: {e}"}), 500
         
@@ -341,13 +377,37 @@ def execute():
             traceback.print_exc()
             return jsonify({"success": False, "error": f"Failed to fetch app from IPFS: {e}"}), 500
         
-        # Step 4: Run in SGX enclave
-        print("[EXEC] Step 4: Running in SGX enclave...")
-        result = run_in_enclave(dataset_data, app_data, params)
+        # Step 4: Get decryption keys from local store
+        print("[EXEC] Step 4: Getting decryption keys...")
+        dataset_cid = dataset_info["encryptedUri"].replace("ipfs://", "")[:16]
+        app_cid = app_info["encryptedUri"].replace("ipfs://", "")[:16]
+        
+        print(f"[EXEC] Looking for dataset key with prefix: {dataset_cid}")
+        print(f"[EXEC] Looking for app key with prefix: {app_cid}")
+        print(f"[EXEC] Available keys: {list(KEY_STORE.keys())}")
+        
+        dataset_key_info = KEY_STORE.get(dataset_cid)
+        app_key_info = KEY_STORE.get(app_cid)
+        
+        if not dataset_key_info:
+            print(f"[EXEC] Error: Dataset key not found for {dataset_cid}")
+            return jsonify({"success": False, "error": f"Dataset key not found. Please re-register the dataset."}), 500
+        
+        if not app_key_info:
+            print(f"[EXEC] Error: App key not found for {app_cid}")
+            return jsonify({"success": False, "error": f"Application key not found. Please re-register the application."}), 500
+        
+        dataset_key = dataset_key_info["key"]
+        app_key = app_key_info["key"]
+        print(f"[EXEC] Keys found!")
+        
+        # Step 5: Run in SGX enclave
+        print("[EXEC] Step 5: Running in SGX enclave...")
+        result = run_in_enclave(dataset_data, app_data, dataset_key, app_key, params)
         print(f"[EXEC] Enclave result: {result}")
         
-        # Step 5: Return results
-        print("[EXEC] Step 5: Returning results")
+        # Step 6: Return results
+        print("[EXEC] Step 6: Returning results")
         return jsonify({
             "success": result["success"],
             "output": result.get("output"),
