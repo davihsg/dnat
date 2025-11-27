@@ -16,21 +16,20 @@ services:
   # Hardhat - Local Ethereum Network
   # ===========================================
   hardhat:
-    image: node:18-alpine
+    image: node:20.19.5
     container_name: dnat-hardhat
     working_dir: /app
     ports:
       - "8545:8545"
     volumes:
       - ./smart-contract:/app
-    command: >
-      sh -c "npm install && npx hardhat node --hostname 0.0.0.0"
+    command: ["sh", "-c", "npm install && npx hardhat node --hostname 0.0.0.0"]
 
   # ===========================================
   # Client - Next.js Frontend
   # ===========================================
   client:
-    image: node:18-alpine
+    image: node:20.19.5
     container_name: dnat-client
     working_dir: /app
     ports:
@@ -41,8 +40,7 @@ services:
     environment:
       # Executor API via SSH tunnel
       NEXT_PUBLIC_EXECUTOR_URL: "http://localhost:8080"
-    command: >
-      sh -c "npm install && npm run dev"
+    command: ["sh", "-c", "npm install && npm run dev"]
     depends_on:
       - hardhat
 
