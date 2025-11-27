@@ -9,22 +9,9 @@
 # 1. Start this on your local machine: docker compose up
 # 2. Start executor on VM: cd executor && docker compose up
 # 3. SSH tunnel from local to VM:
-#    ssh -L 8080:localhost:8080 -L 5001:localhost:5001 -L 8081:localhost:8081 user@vm
+#    ssh -L 8080:localhost:8080 -L 5001:localhost:5001 -L 8081:localhost:8081 -L 8545:localhost:8545 user@vm
 
 services:
-  # ===========================================
-  # Hardhat - Local Ethereum Network
-  # ===========================================
-  hardhat:
-    image: node:20.19.5
-    container_name: dnat-hardhat
-    working_dir: /app
-    ports:
-      - "8545:8545"
-    volumes:
-      - ./smart-contract:/app
-    command: ["sh", "-c", "npm install && npx hardhat node --hostname 0.0.0.0"]
-
   # ===========================================
   # Client - Next.js Frontend
   # ===========================================
@@ -41,6 +28,3 @@ services:
       # Executor API via SSH tunnel
       NEXT_PUBLIC_EXECUTOR_URL: "http://localhost:8081"
     command: ["sh", "-c", "npm install && npm run dev"]
-    depends_on:
-      - hardhat
-

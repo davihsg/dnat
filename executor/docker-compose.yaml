@@ -1,14 +1,28 @@
 # DNAT Executor Stack (runs on VM)
 #
 # This docker-compose runs:
+# - Hardhat (local blockchain)
 # - IPFS node (stores encrypted data)
 # - Executor API (receives execution requests)
 # - LAS (SCONE Local Attestation Service)
 #
 # Access from local machine via SSH tunnel:
-#   ssh -L 8080:localhost:8080 -L 5001:localhost:5001 -L 8081:localhost:8081 user@vm
+#   ssh -L 8080:localhost:8080 -L 5001:localhost:5001 -L 8081:localhost:8081 -L 8545:localhost:8545 user@vm
 
 services:
+  # ===========================================
+  # Hardhat - Local Blockchain
+  # ===========================================
+  hardhat:
+    image: node:20.19.5
+    container_name: dnat-hardhat
+    working_dir: /app
+    volumes:
+      - ../smart-contract:/app
+    ports:
+      - "8545:8545"
+    command: ["sh", "-c", "npm install && npx hardhat node --hostname 0.0.0.0"]
+
   # ===========================================
   # IPFS - Stores encrypted datasets and apps
   # ===========================================
@@ -35,23 +49,17 @@ services:
     environment:
       PORT: "8081"
       DEBUG: "true"
-      # Blockchain RPC - connect to local machine via SSH tunnel reverse
-      BLOCKCHAIN_RPC: "http://host.docker.internal:8545"
+      BLOCKCHAIN_RPC: "http://hardhat:8545"
       CONTRACT_ADDRESS: "${CONTRACT_ADDRESS:-0x5FbDB2315678afecb367f032d93F642f64180aa3}"
-      # IPFS gateway - local container
       IPFS_GATEWAY: "http://ipfs:8080/ipfs"
-      # Enclave path
       ENCLAVE_PATH: "/app/enclave"
-      # Keys (for testing - in production from CAS)
-      DATASET_KEY: "${DATASET_KEY}"
-      APP_KEY: "${APP_KEY}"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./api/enclave:/app/enclave
       - ./certs:/app/certs:ro
     depends_on:
       - ipfs
+      - hardhat
+      - las
 
   # ===========================================
   # SCONE LAS - Local Attestation Service
