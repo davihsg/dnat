@@ -263,60 +263,101 @@ def execute():
         "params": {...}  // optional
     }
     """
+    import traceback
+    
     try:
         data = request.json
+        print(f"[EXEC] Received request: {data}")
+        
         dataset_id = int(data.get("datasetId"))
         application_id = int(data.get("applicationId"))
         user_address = data.get("userAddress")
         params = data.get("params", {})
         
-        print(f"Execution request: dataset={dataset_id}, app={application_id}, user={user_address}")
+        print(f"[EXEC] Parsed: dataset={dataset_id}, app={application_id}, user={user_address}")
+        print(f"[EXEC] Config: BLOCKCHAIN_RPC={BLOCKCHAIN_RPC}")
+        print(f"[EXEC] Config: CONTRACT_ADDRESS={CONTRACT_ADDRESS}")
+        print(f"[EXEC] Config: IPFS_GATEWAY={IPFS_GATEWAY}")
         
         # Step 1: Fetch asset info from blockchain
-        print("Fetching asset info from blockchain...")
-        dataset_info = get_asset_info(dataset_id)
-        app_info = get_asset_info(application_id)
+        print("[EXEC] Step 1: Fetching asset info from blockchain...")
+        try:
+            dataset_info = get_asset_info(dataset_id)
+            print(f"[EXEC] Dataset info: {dataset_info}")
+        except Exception as e:
+            print(f"[EXEC] Error fetching dataset info: {e}")
+            traceback.print_exc()
+            return jsonify({"success": False, "error": f"Failed to fetch dataset info: {e}"}), 500
+        
+        try:
+            app_info = get_asset_info(application_id)
+            print(f"[EXEC] App info: {app_info}")
+        except Exception as e:
+            print(f"[EXEC] Error fetching app info: {e}")
+            traceback.print_exc()
+            return jsonify({"success": False, "error": f"Failed to fetch app info: {e}"}), 500
         
         if not dataset_info["active"]:
+            print("[EXEC] Error: Dataset is not active")
             return jsonify({"success": False, "error": "Dataset is not active"}), 400
         if not app_info["active"]:
+            print("[EXEC] Error: Application is not active")
             return jsonify({"success": False, "error": "Application is not active"}), 400
         
         # Step 2: Check access rights
-        print("Checking access rights...")
+        print("[EXEC] Step 2: Checking access rights...")
+        print(f"[EXEC] hasAccess({user_address}, {dataset_info['encryptedUri']}, {app_info['encryptedUri']})")
         has_access = check_access(
             user_address,
             dataset_info["encryptedUri"],
             app_info["encryptedUri"]
         )
+        print(f"[EXEC] Access result: {has_access}")
         
         if not has_access:
+            print("[EXEC] Error: User does not have access")
             return jsonify({
                 "success": False,
                 "error": "User does not have access to this dataset-application combination"
             }), 403
         
         # Step 3: Fetch encrypted assets from IPFS
-        print(f"Fetching dataset from IPFS: {dataset_info['encryptedUri']}")
-        dataset_data = fetch_from_ipfs(dataset_info["encryptedUri"])
+        print(f"[EXEC] Step 3: Fetching from IPFS...")
+        print(f"[EXEC] Dataset URI: {dataset_info['encryptedUri']}")
+        try:
+            dataset_data = fetch_from_ipfs(dataset_info["encryptedUri"])
+            print(f"[EXEC] Dataset fetched: {len(dataset_data)} bytes")
+        except Exception as e:
+            print(f"[EXEC] Error fetching dataset from IPFS: {e}")
+            traceback.print_exc()
+            return jsonify({"success": False, "error": f"Failed to fetch dataset from IPFS: {e}"}), 500
         
-        print(f"Fetching application from IPFS: {app_info['encryptedUri']}")
-        app_data = fetch_from_ipfs(app_info["encryptedUri"])
+        print(f"[EXEC] App URI: {app_info['encryptedUri']}")
+        try:
+            app_data = fetch_from_ipfs(app_info["encryptedUri"])
+            print(f"[EXEC] App fetched: {len(app_data)} bytes")
+        except Exception as e:
+            print(f"[EXEC] Error fetching app from IPFS: {e}")
+            traceback.print_exc()
+            return jsonify({"success": False, "error": f"Failed to fetch app from IPFS: {e}"}), 500
         
         # Step 4: Run in SGX enclave
-        print("Running in SGX enclave...")
+        print("[EXEC] Step 4: Running in SGX enclave...")
         result = run_in_enclave(dataset_data, app_data, params)
+        print(f"[EXEC] Enclave result: {result}")
         
         # Step 5: Return results
+        print("[EXEC] Step 5: Returning results")
         return jsonify({
             "success": result["success"],
             "output": result.get("output"),
             "error": result.get("error"),
-            "executionTime": None,  # TODO: measure execution time
+            "executionTime": None,
         })
         
     except Exception as e:
-        print(f"Execution error: {e}")
+        print(f"[EXEC] Unhandled exception: {e}")
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": str(e)
