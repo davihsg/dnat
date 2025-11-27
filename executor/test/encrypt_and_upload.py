@@ -61,13 +61,16 @@ secrets:
     
     print(f"Session file generated: session.yaml")
     
-    # Upload to CAS
+    # Upload to CAS using Docker
     print(f"Uploading session to CAS ({CAS_URL})...")
-    result = subprocess.run(
-        ["scone", "session", "create", "session.yaml", "--cas", CAS_URL],
-        capture_output=True,
-        text=True
-    )
+    cwd = os.getcwd()
+    result = subprocess.run([
+        "docker", "run", "--rm",
+        "-v", f"{cwd}:/work",
+        "-w", "/work",
+        "registry.scontain.com/sconecuratedimages/sconecli:latest",
+        "scone", "session", "create", "session.yaml", "--cas", CAS_URL
+    ], capture_output=True, text=True)
     
     if result.returncode == 0:
         print("Session uploaded successfully!")
