@@ -19,5 +19,5 @@ services:
     environment:
       SCONE_CAS_ADDR: scone-cas.cf
       SCONE_LAS_ADDR: las
-      SCONE_CONFIG_ID: dnat-test/executor
+      SCONE_CONFIG_ID: dnat-test-davi/executor
 
