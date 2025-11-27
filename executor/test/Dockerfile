@@ -1,4 +1,4 @@
-FROM registry.scontain.com/sconecuratedimages/apps:python-3.7.3-alpine3.10-scone6.0.2
+FROM registry.scontain.com/sconecuratedimages/apps:python3-alpine-scone5.8.0
 
 WORKDIR /app
 RUN pip install --no-cache-dir cryptography
