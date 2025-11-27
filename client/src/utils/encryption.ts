@@ -77,6 +77,9 @@ export async function decryptData(
 
 /**
  * Encrypt file and return encrypted blob
+ * 
+ * Format: iv (12 bytes) + ciphertext + tag (16 bytes)
+ * This matches what the SGX enclave expects for decryption.
  */
 export async function encryptFile(
   file: File,
@@ -84,6 +87,12 @@ export async function encryptFile(
 ): Promise<{ encryptedBlob: Blob; iv: Uint8Array }> {
   const fileBuffer = await file.arrayBuffer();
   const { encrypted, iv } = await encryptData(fileBuffer, key);
-  return { encryptedBlob: new Blob([encrypted]), iv };
+  
+  // Prepend IV to encrypted data: iv (12 bytes) + ciphertext + tag (16 bytes)
+  const encryptedWithIV = new Uint8Array(iv.length + encrypted.byteLength);
+  encryptedWithIV.set(iv, 0);
+  encryptedWithIV.set(new Uint8Array(encrypted), iv.length);
+  
+  return { encryptedBlob: new Blob([encryptedWithIV]), iv };
 }
 
