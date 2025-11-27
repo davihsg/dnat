@@ -36,7 +36,7 @@ sys.stdout.reconfigure(line_buffering=True)
 app = Flask(__name__)
 CORS(app)
 
-# Local key storage (for testing - in production, keys come from CAS after attestation)
+# Local key storage (in-memory only - keys lost on restart)
 KEY_STORE = {}
 
 # Configuration
@@ -122,22 +122,19 @@ def check_access(user: str, dataset_uri: str, app_uri: str) -> bool:
     try:
         return contract.functions.hasAccess(user, dataset_uri, app_uri).call()
     except Exception as e:
-        print(f"Access check failed: {e}")
+        logger.error(f"Access check failed: {e}")
         return False
 
 
-def run_in_enclave(dataset_data: bytes, app_data: bytes, dataset_key: str, app_key: str, params: dict = None) -> dict:
+def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) -> dict:
     """
     Run the application over the dataset inside the SGX enclave.
     
-    In the full implementation, this would:
-    1. Send encrypted data to enclave
-    2. Enclave fetches keys from CAS
-    3. Enclave decrypts, re-encrypts with K_AD
-    4. Second enclave runs execution
-    5. Returns results
-    
-    For now, we pass keys directly (in production, CAS provides them after attestation).
+    The enclave:
+    1. Receives encrypted data
+    2. Gets keys from SCONE CAS (injected after attestation)
+    3. Decrypts and runs the application
+    4. Returns results
     """
     # Create temp files for the encrypted data
     with tempfile.NamedTemporaryFile(delete=False, suffix=".enc") as dataset_file:
@@ -149,11 +146,7 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, dataset_key: str, app_k
         app_path = app_file.name
     
     try:
-        # Set up environment with keys (in production, CAS injects these)
-        env = os.environ.copy()
-        env["DATASET_KEY"] = dataset_key
-        env["APP_KEY"] = app_key
-        
+        # Keys are injected by SCONE CAS after attestation
         result = subprocess.run(
             [
                 "python3", f"{ENCLAVE_PATH}/execute.py",
@@ -163,8 +156,7 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, dataset_key: str, app_k
             ],
             capture_output=True,
             text=True,
-            timeout=300,
-            env=env
+            timeout=300
         )
         
         return {
@@ -192,6 +184,15 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, dataset_key: str, app_k
 def health():
     """Health check endpoint."""
     return jsonify({"status": "healthy"})
+
+
+@app.route("/keys", methods=["GET"])
+def list_keys():
+    """List stored keys (for debugging)."""
+    return jsonify({
+        "count": len(KEY_STORE),
+        "keys": {k: {"type": v["type"], "sessionName": v["sessionName"]} for k, v in KEY_STORE.items()}
+    })
 
 
 @app.route("/cas/upload", methods=["POST"])
@@ -272,7 +273,7 @@ def cas_upload():
                     "type": asset_type,
                     "sessionName": session_name
                 }
-                logger.info(f"[CAS] Stored key locally for {asset_type} {ipfs_hash}")
+                logger.info(f"[CAS] Stored key in memory for {asset_type} {ipfs_hash}")
             
             return jsonify({"success": True, "sessionName": session_name, "response": response_text})
         else:
@@ -281,8 +282,6 @@ def cas_upload():
             
     except Exception as e:
         logger.exception(f"[CAS] Exception: {e}")
-        import traceback
-        traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -299,8 +298,6 @@ def execute():
         "params": {...}  // optional
     }
     """
-    import traceback
-    
     try:
         data = request.json
         logger.info(f"[EXEC] Received request: {data}")
@@ -327,87 +324,62 @@ def execute():
         
         try:
             app_info = get_asset_info(application_id)
-            print(f"[EXEC] App info: {app_info}")
+            logger.info(f"[EXEC] App info: {app_info}")
         except Exception as e:
-            print(f"[EXEC] Error fetching app info: {e}")
+            logger.error(f"[EXEC] Error fetching app info: {e}")
             traceback.print_exc()
             return jsonify({"success": False, "error": f"Failed to fetch app info: {e}"}), 500
         
         if not dataset_info["active"]:
-            print("[EXEC] Error: Dataset is not active")
+            logger.error("[EXEC] Error: Dataset is not active")
             return jsonify({"success": False, "error": "Dataset is not active"}), 400
         if not app_info["active"]:
-            print("[EXEC] Error: Application is not active")
+            logger.error("[EXEC] Error: Application is not active")
             return jsonify({"success": False, "error": "Application is not active"}), 400
         
         # Step 2: Check access rights
-        print("[EXEC] Step 2: Checking access rights...")
-        print(f"[EXEC] hasAccess({user_address}, {dataset_info['encryptedUri']}, {app_info['encryptedUri']})")
+        logger.info("[EXEC] Step 2: Checking access rights...")
+        logger.info(f"[EXEC] hasAccess({user_address}, {dataset_info['encryptedUri']}, {app_info['encryptedUri']})")
         has_access = check_access(
             user_address,
             dataset_info["encryptedUri"],
             app_info["encryptedUri"]
         )
-        print(f"[EXEC] Access result: {has_access}")
+        logger.info(f"[EXEC] Access result: {has_access}")
         
         if not has_access:
-            print("[EXEC] Error: User does not have access")
+            logger.error("[EXEC] Error: User does not have access")
             return jsonify({
                 "success": False,
                 "error": "User does not have access to this dataset-application combination"
             }), 403
         
         # Step 3: Fetch encrypted assets from IPFS
-        print(f"[EXEC] Step 3: Fetching from IPFS...")
-        print(f"[EXEC] Dataset URI: {dataset_info['encryptedUri']}")
+        logger.info(f"[EXEC] Step 3: Fetching from IPFS...")
+        logger.info(f"[EXEC] Dataset URI: {dataset_info['encryptedUri']}")
         try:
             dataset_data = fetch_from_ipfs(dataset_info["encryptedUri"])
-            print(f"[EXEC] Dataset fetched: {len(dataset_data)} bytes")
+            logger.info(f"[EXEC] Dataset fetched: {len(dataset_data)} bytes")
         except Exception as e:
-            print(f"[EXEC] Error fetching dataset from IPFS: {e}")
+            logger.error(f"[EXEC] Error fetching dataset from IPFS: {e}")
             traceback.print_exc()
             return jsonify({"success": False, "error": f"Failed to fetch dataset from IPFS: {e}"}), 500
         
-        print(f"[EXEC] App URI: {app_info['encryptedUri']}")
+        logger.info(f"[EXEC] App URI: {app_info['encryptedUri']}")
         try:
             app_data = fetch_from_ipfs(app_info["encryptedUri"])
-            print(f"[EXEC] App fetched: {len(app_data)} bytes")
+            logger.info(f"[EXEC] App fetched: {len(app_data)} bytes")
         except Exception as e:
-            print(f"[EXEC] Error fetching app from IPFS: {e}")
-            traceback.print_exc()
+            logger.error(f"[EXEC] Error fetching app from IPFS: {e}")
             return jsonify({"success": False, "error": f"Failed to fetch app from IPFS: {e}"}), 500
         
-        # Step 4: Get decryption keys from local store
-        print("[EXEC] Step 4: Getting decryption keys...")
-        dataset_cid = dataset_info["encryptedUri"].replace("ipfs://", "")[:16]
-        app_cid = app_info["encryptedUri"].replace("ipfs://", "")[:16]
+        # Step 4: Run in SGX enclave (keys injected by SCONE CAS after attestation)
+        logger.info("[EXEC] Step 4: Running in SGX enclave...")
+        result = run_in_enclave(dataset_data, app_data, params)
+        logger.info(f"[EXEC] Enclave result: {result}")
         
-        print(f"[EXEC] Looking for dataset key with prefix: {dataset_cid}")
-        print(f"[EXEC] Looking for app key with prefix: {app_cid}")
-        print(f"[EXEC] Available keys: {list(KEY_STORE.keys())}")
-        
-        dataset_key_info = KEY_STORE.get(dataset_cid)
-        app_key_info = KEY_STORE.get(app_cid)
-        
-        if not dataset_key_info:
-            print(f"[EXEC] Error: Dataset key not found for {dataset_cid}")
-            return jsonify({"success": False, "error": f"Dataset key not found. Please re-register the dataset."}), 500
-        
-        if not app_key_info:
-            print(f"[EXEC] Error: App key not found for {app_cid}")
-            return jsonify({"success": False, "error": f"Application key not found. Please re-register the application."}), 500
-        
-        dataset_key = dataset_key_info["key"]
-        app_key = app_key_info["key"]
-        print(f"[EXEC] Keys found!")
-        
-        # Step 5: Run in SGX enclave
-        print("[EXEC] Step 5: Running in SGX enclave...")
-        result = run_in_enclave(dataset_data, app_data, dataset_key, app_key, params)
-        print(f"[EXEC] Enclave result: {result}")
-        
-        # Step 6: Return results
-        print("[EXEC] Step 6: Returning results")
+        # Step 5: Return results
+        logger.info("[EXEC] Step 5: Returning results")
         return jsonify({
             "success": result["success"],
             "output": result.get("output"),
@@ -416,8 +388,7 @@ def execute():
         })
         
     except Exception as e:
-        print(f"[EXEC] Unhandled exception: {e}")
-        traceback.print_exc()
+        logger.exception(f"[EXEC] Unhandled exception: {e}")
         return jsonify({
             "success": False,
             "error": str(e)

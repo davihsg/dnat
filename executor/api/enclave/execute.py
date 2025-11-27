@@ -4,11 +4,11 @@ SGX Enclave Execution Script
 
 This script runs inside the SGX enclave and:
 1. Receives encrypted dataset and application
-2. Fetches decryption keys from SCONE CAS
+2. Gets decryption keys from SCONE CAS (injected after attestation)
 3. Decrypts and runs the application over the dataset
 4. Returns results
 
-Keys are injected by SCONE CAS after attestation:
+Keys are injected by SCONE CAS as environment variables:
 - DATASET_KEY: Key to decrypt the dataset
 - APP_KEY: Key to decrypt the application
 """
@@ -85,7 +85,7 @@ def main():
     parser.add_argument("--params", default="{}", help="JSON execution parameters")
     args = parser.parse_args()
     
-    # Get keys from environment (injected by SCONE CAS)
+    # Get keys from environment (injected by SCONE CAS after attestation)
     dataset_key = os.environ.get("DATASET_KEY")
     app_key = os.environ.get("APP_KEY")
     
@@ -96,6 +96,7 @@ def main():
     print("=" * 50)
     print("SGX Enclave Execution")
     print("=" * 50)
+    print("Keys retrieved from CAS")
     
     # Step 1: Decrypt dataset
     print("Decrypting dataset...")
