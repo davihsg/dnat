@@ -84,7 +84,7 @@ def main():
     
     # Generate session file with the key
     session_content = f"""name: {SESSION_NAME}
-version: "0.3.1"
+version: "0.3.10"
 {predecessor_line}
 
 security:
@@ -96,6 +96,8 @@ services:
   - name: executor
     mrenclaves: [{mrenclave}]
     command: python /app/executor.py
+    environment:
+      CODE_KEY: "$$SCONE::CODE_KEY$$"
 
 secrets:
   - name: CODE_KEY
