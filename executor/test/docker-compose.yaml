@@ -10,6 +10,7 @@ services:
 
   executor:
     build: .
+    user: root
     depends_on:
       - las
     devices:
