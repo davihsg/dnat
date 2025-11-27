@@ -103,8 +103,14 @@ def main():
     print("Keys retrieved from CAS")
     
     # Debug: show key and data info
-    print(f"  Dataset key length: {len(base64.b64decode(dataset_key))} bytes")
-    print(f"  App key length: {len(base64.b64decode(app_key))} bytes")
+    import hashlib
+    dataset_key_bytes = base64.b64decode(dataset_key)
+    app_key_bytes = base64.b64decode(app_key)
+    
+    print(f"  Dataset key length: {len(dataset_key_bytes)} bytes")
+    print(f"  Dataset key hash: {hashlib.sha256(dataset_key_bytes).hexdigest()[:16]}")
+    print(f"  Dataset key (b64): {dataset_key[:20]}...")
+    print(f"  App key length: {len(app_key_bytes)} bytes")
     
     with open(dataset_path, 'rb') as f:
         data = f.read()
