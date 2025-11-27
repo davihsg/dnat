@@ -52,14 +52,19 @@ services:
       BLOCKCHAIN_RPC: "http://hardhat:8545"
       CONTRACT_ADDRESS: "${CONTRACT_ADDRESS:-0x5FbDB2315678afecb367f032d93F642f64180aa3}"
       IPFS_GATEWAY: "http://ipfs:8080/ipfs"
-      ENCLAVE_PATH: "/app/enclave"
+      ENCLAVE_IMAGE: "dnat-enclave"
+      CAS_URL: "scone-cas.cf"
+      SCONE_CONFIG_ID: "${SCONE_CONFIG_ID:-}"
     volumes:
       - ./api/enclave:/app/enclave
       - ./certs:/app/certs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp
     depends_on:
       - ipfs
       - hardhat
       - las
+      - enclave
 
   # ===========================================
   # SCONE LAS - Local Attestation Service
@@ -73,6 +78,16 @@ services:
       - "/dev/sgx_provision:/dev/sgx_provision"
     ports:
       - "18766:18766"
+
+  # ===========================================
+  # Enclave - SGX execution environment
+  # ===========================================
+  enclave:
+    build: ./enclave
+    image: dnat-enclave
+    container_name: dnat-enclave-build
+    command: echo "Enclave image built"
+    # This service just builds the image; actual execution is via docker run
 
 volumes:
   ipfs_data:

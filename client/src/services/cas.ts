@@ -21,11 +21,20 @@ export function generateSessionName(assetType: string, ipfsHash: string): string
   return `dnat-${assetType}-${hashPrefix}`;
 }
 
+// MREnclave of the executor enclave (get from: SCONE_HASH=1 docker run <image>)
+const MRENCLAVE = process.env.NEXT_PUBLIC_MRENCLAVE || "";
+
 /**
  * Create a CAS session YAML for storing the encryption key
  */
 function createSessionYAML(config: CASSessionConfig): string {
   const keyName = `${config.assetType.toUpperCase()}_KEY`;
+  
+  // If MREnclave is set, use strict attestation; otherwise permissive for testing
+  const mrenclaveSection = MRENCLAVE 
+    ? `    mrenclaves: [${MRENCLAVE}]`
+    : `    # MREnclave not set - permissive mode for testing`;
+  
   return `name: ${config.sessionName}
 version: "0.3.10"
 
@@ -36,6 +45,7 @@ security:
 
 services:
   - name: executor
+${mrenclaveSection}
     command: python /app/enclave/execute.py
     environment:
       ${keyName}: "$$SCONE::${keyName}$$"

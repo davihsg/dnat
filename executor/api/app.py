@@ -130,34 +130,62 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
     """
     Run the application over the dataset inside the SGX enclave.
     
+    Spawns a Docker container with the SCONE-enabled image.
     The enclave:
     1. Receives encrypted data
     2. Gets keys from SCONE CAS (injected after attestation)
     3. Decrypts and runs the application
     4. Returns results
     """
-    # Create temp files for the encrypted data
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".enc") as dataset_file:
-        dataset_file.write(dataset_data)
-        dataset_path = dataset_file.name
+    # Create temp directory for data exchange
+    data_dir = tempfile.mkdtemp()
+    dataset_path = os.path.join(data_dir, "dataset.enc")
+    app_path = os.path.join(data_dir, "application.enc")
+    params_path = os.path.join(data_dir, "params.json")
     
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".enc") as app_file:
-        app_file.write(app_data)
-        app_path = app_file.name
+    # Write data to temp files
+    with open(dataset_path, 'wb') as f:
+        f.write(dataset_data)
+    with open(app_path, 'wb') as f:
+        f.write(app_data)
+    with open(params_path, 'w') as f:
+        json.dump(params or {}, f)
     
     try:
-        # Keys are injected by SCONE CAS after attestation
+        # Spawn Docker container with SCONE enclave
+        enclave_image = os.environ.get("ENCLAVE_IMAGE", "dnat-enclave")
+        cas_url = os.environ.get("CAS_URL", "scone-cas.cf")
+        scone_config_id = os.environ.get("SCONE_CONFIG_ID", "")
+        
+        cmd = [
+            "docker", "run", "--rm",
+            "--device=/dev/sgx_enclave:/dev/sgx_enclave",
+            "--device=/dev/sgx_provision:/dev/sgx_provision",
+            "-v", f"{data_dir}:/data:ro",
+            "-e", f"SCONE_CAS_ADDR={cas_url}",
+            "-e", f"SCONE_CONFIG_ID={scone_config_id}",
+            "-e", "SCONE_MODE=HW",
+            "-e", "SCONE_LOG=3",
+            enclave_image,
+            "python", "/app/execute.py",
+            "--dataset", "/data/dataset.enc",
+            "--application", "/data/application.enc",
+            "--params", f"/data/params.json"
+        ]
+        
+        logger.info(f"[ENCLAVE] Running: {' '.join(cmd)}")
+        
         result = subprocess.run(
-            [
-                "python3", f"{ENCLAVE_PATH}/execute.py",
-                "--dataset", dataset_path,
-                "--application", app_path,
-                "--params", json.dumps(params or {})
-            ],
+            cmd,
             capture_output=True,
             text=True,
             timeout=300
         )
+        
+        logger.info(f"[ENCLAVE] Exit code: {result.returncode}")
+        logger.info(f"[ENCLAVE] Stdout: {result.stdout}")
+        if result.stderr:
+            logger.info(f"[ENCLAVE] Stderr: {result.stderr}")
         
         return {
             "success": result.returncode == 0,
@@ -170,14 +198,15 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
             "error": "Execution timed out after 5 minutes",
         }
     except Exception as e:
+        logger.exception(f"[ENCLAVE] Error: {e}")
         return {
             "success": False,
             "error": str(e),
         }
     finally:
         # Clean up temp files
-        os.unlink(dataset_path)
-        os.unlink(app_path)
+        import shutil
+        shutil.rmtree(data_dir, ignore_errors=True)
 
 
 @app.route("/health", methods=["GET"])
