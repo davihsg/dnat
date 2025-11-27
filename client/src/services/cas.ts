@@ -1,11 +1,10 @@
 /**
  * SCONE CAS (Configuration and Attestation Service) Client
  * 
- * Uploads encryption keys directly to scone-cas.cf when registering assets.
- * The Executor retrieves these keys after SGX attestation during execution.
+ * Uploads encryption keys to CAS via Executor (which has the certificates).
  */
 
-const CAS_URL = process.env.NEXT_PUBLIC_CAS_URL || "https://scone-cas.cf:8081";
+const EXECUTOR_URL = process.env.NEXT_PUBLIC_EXECUTOR_URL || "http://localhost:8081";
 
 export interface CASSessionConfig {
   sessionName: string;
@@ -25,7 +24,7 @@ export function generateSessionName(assetType: string, ipfsHash: string): string
 /**
  * Create a CAS session YAML for storing the encryption key
  */
-export function createSessionYAML(config: CASSessionConfig): string {
+function createSessionYAML(config: CASSessionConfig): string {
   const keyName = `${config.assetType.toUpperCase()}_KEY`;
   return `name: ${config.sessionName}
 version: "0.3.10"
@@ -49,7 +48,7 @@ secrets:
 }
 
 /**
- * Upload encryption key to CAS (scone-cas.cf)
+ * Upload encryption key to CAS via Executor
  */
 export async function uploadKeyToCAS(config: CASSessionConfig): Promise<{
   success: boolean;
@@ -59,23 +58,20 @@ export async function uploadKeyToCAS(config: CASSessionConfig): Promise<{
   try {
     const sessionYAML = createSessionYAML(config);
     
-    const response = await fetch(`${CAS_URL}/session`, {
+    const response = await fetch(`${EXECUTOR_URL}/cas/upload`, {
       method: "POST",
-      body: sessionYAML,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionName: config.sessionName,
+        sessionYAML: sessionYAML,
+      }),
     });
 
-    const result = await response.text();
-
-    if (result.includes("Created Session") || result.includes("hash")) {
-      return {
-        success: true,
-        sessionName: config.sessionName,
-      };
-    }
-
+    const result = await response.json();
     return {
-      success: false,
-      error: result,
+      success: result.success,
+      sessionName: config.sessionName,
+      error: result.error,
     };
   } catch (error) {
     return {

@@ -29,6 +29,11 @@ CONTRACT_ADDRESS = os.environ.get("CONTRACT_ADDRESS", "0x5FbDB2315678afecb367f03
 IPFS_GATEWAY = os.environ.get("IPFS_GATEWAY", "http://localhost:8080/ipfs")
 ENCLAVE_PATH = os.environ.get("ENCLAVE_PATH", "/app/enclave")
 
+# CAS Configuration
+CAS_URL = os.environ.get("CAS_URL", "scone-cas.cf")
+CAS_CERT = os.environ.get("CAS_CERT", "/app/certs/client.crt")
+CAS_KEY = os.environ.get("CAS_KEY", "/app/certs/client.key")
+
 # Contract ABI (minimal - just what we need)
 CONTRACT_ABI = [
     {
@@ -167,6 +172,52 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
 def health():
     """Health check endpoint."""
     return jsonify({"status": "healthy"})
+
+
+@app.route("/cas/upload", methods=["POST"])
+def cas_upload():
+    """
+    Upload a session to CAS.
+    
+    Request body:
+    {
+        "sessionName": "dnat-dataset-abc123",
+        "sessionYAML": "name: dnat-dataset-abc123\n..."
+    }
+    """
+    try:
+        data = request.json
+        session_name = data.get("sessionName")
+        session_yaml = data.get("sessionYAML")
+        
+        if not session_yaml:
+            return jsonify({"success": False, "error": "Missing sessionYAML"}), 400
+        
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            f.write(session_yaml)
+            yaml_path = f.name
+        
+        # Upload to CAS using curl
+        result = subprocess.run([
+            "curl", "-k", "-s",
+            "--cert", CAS_CERT,
+            "--key", CAS_KEY,
+            "--data-binary", f"@{yaml_path}",
+            "-X", "POST",
+            f"https://{CAS_URL}:8081/session"
+        ], capture_output=True, text=True, timeout=30)
+        
+        os.unlink(yaml_path)
+        
+        response_text = result.stdout
+        if "hash" in response_text or "Created Session" in response_text:
+            return jsonify({"success": True, "sessionName": session_name, "response": response_text})
+        else:
+            return jsonify({"success": False, "error": response_text}), 500
+            
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/execute", methods=["POST"])
