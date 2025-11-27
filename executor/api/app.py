@@ -28,6 +28,13 @@ BLOCKCHAIN_RPC = os.environ.get("BLOCKCHAIN_RPC", "http://localhost:8545")
 CONTRACT_ADDRESS = os.environ.get("CONTRACT_ADDRESS", "0x5FbDB2315678afecb367f032d93F642f64180aa3")
 IPFS_GATEWAY = os.environ.get("IPFS_GATEWAY", "http://localhost:8080/ipfs")
 ENCLAVE_PATH = os.environ.get("ENCLAVE_PATH", "/app/enclave")
+CAS_URL = os.environ.get("CAS_URL", "scone-cas.cf")
+CAS_CERT_PATH = os.environ.get("CAS_CERT_PATH", "/certs/client.crt")
+CAS_KEY_PATH = os.environ.get("CAS_KEY_PATH", "/certs/client.key")
+
+# In-memory key store (for testing when CAS is not available)
+# In production, keys should ONLY be stored in CAS
+key_store = {}
 
 # Contract ABI (minimal - just what we need)
 CONTRACT_ABI = [
@@ -167,6 +174,115 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
 def health():
     """Health check endpoint."""
     return jsonify({"status": "healthy"})
+
+
+@app.route("/cas/upload-key", methods=["POST"])
+def upload_key_to_cas():
+    """
+    Upload an encryption key to SCONE CAS.
+    
+    Request body:
+    {
+        "sessionName": "dnat-dataset-abc123-1234567890",
+        "encryptionKey": "base64-encoded-key",
+        "assetType": "dataset" | "application",
+        "ipfsHash": "Qm..."
+    }
+    """
+    try:
+        data = request.json
+        session_name = data.get("sessionName")
+        encryption_key = data.get("encryptionKey")
+        asset_type = data.get("assetType")
+        ipfs_hash = data.get("ipfsHash")
+        
+        if not all([session_name, encryption_key, asset_type, ipfs_hash]):
+            return jsonify({"success": False, "error": "Missing required fields"}), 400
+        
+        print(f"Uploading key to CAS: session={session_name}, type={asset_type}")
+        
+        # Generate CAS session YAML
+        key_name = f"{asset_type.upper()}_KEY"
+        session_yaml = f"""name: {session_name}
+version: "0.3.10"
+
+security:
+  attestation:
+    tolerate: [debug-mode, hyperthreading, insecure-igpu, outdated-tcb, software-hardening-needed]
+    ignore_advisories: "*"
+
+services:
+  - name: executor
+    command: python /app/enclave/execute.py
+    environment:
+      {key_name}: "$$SCONE::{key_name}$$"
+
+secrets:
+  - name: {key_name}
+    kind: ascii
+    value: "{encryption_key}"
+"""
+        
+        # Try to upload to CAS
+        import requests
+        try:
+            # Check if certificates exist
+            if os.path.exists(CAS_CERT_PATH) and os.path.exists(CAS_KEY_PATH):
+                response = requests.post(
+                    f"https://{CAS_URL}:8081/session",
+                    data=session_yaml,
+                    cert=(CAS_CERT_PATH, CAS_KEY_PATH),
+                    verify=False,
+                    timeout=30
+                )
+                
+                if response.ok or "Created Session" in response.text:
+                    print(f"Key uploaded to CAS successfully: {session_name}")
+                    return jsonify({
+                        "success": True,
+                        "sessionName": session_name,
+                        "casResponse": response.text
+                    })
+                else:
+                    print(f"CAS upload failed: {response.text}")
+                    # Fall back to local storage
+            else:
+                print("CAS certificates not found, using local storage")
+        except Exception as cas_error:
+            print(f"CAS connection error: {cas_error}")
+        
+        # Fallback: store key locally (for testing only!)
+        key_store[ipfs_hash] = {
+            "key": encryption_key,
+            "assetType": asset_type,
+            "sessionName": session_name,
+        }
+        print(f"Key stored locally for: {ipfs_hash}")
+        
+        return jsonify({
+            "success": True,
+            "sessionName": session_name,
+            "warning": "Key stored locally (CAS not available)"
+        })
+        
+    except Exception as e:
+        print(f"Error uploading key: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/cas/get-key/<ipfs_hash>", methods=["GET"])
+def get_key(ipfs_hash):
+    """
+    Get encryption key for an asset (from local store for testing).
+    In production, keys are fetched by the enclave from CAS after attestation.
+    """
+    if ipfs_hash in key_store:
+        return jsonify({
+            "success": True,
+            "key": key_store[ipfs_hash]["key"],
+            "assetType": key_store[ipfs_hash]["assetType"],
+        })
+    return jsonify({"success": False, "error": "Key not found"}), 404
 
 
 @app.route("/execute", methods=["POST"])

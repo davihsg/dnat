@@ -23,6 +23,7 @@ import { calculateFileHash } from "@/utils/fileUtils";
 import { objectToYAML } from "@/utils/yamlUtils";
 import { generateEncryptionKey, encryptFile } from "@/utils/encryption";
 import { uploadFileToIPFS, uploadToIPFS, checkIPFSConnection } from "@/utils/ipfsClient";
+import { uploadKeyToCAS, generateSessionName, storeKeyLocally } from "@/services/cas";
 
 interface ManifestData {
   name: string;
@@ -166,21 +167,44 @@ export default function RegisterAsset() {
       const encryptedAssetCID = await uploadFileToIPFS(encryptedBlob);
       console.log("Encrypted asset uploaded to IPFS:", encryptedAssetCID);
 
-      // Step 4: Convert manifest to YAML and upload to IPFS
+      // Extract CID from encrypted asset URI (remove ipfs:// prefix for storage)
+      const encryptedAssetHash = encryptedAssetCID.replace(/^ipfs:\/\//, "");
+
+      // Step 4: Upload encryption key to CAS
+      setUploadProgress("Uploading encryption key to CAS...");
+      const assetTypeName = assetType === 0 ? "dataset" : "application";
+      const sessionName = generateSessionName(assetTypeName, encryptedAssetHash);
+      
+      // Convert encryption key to base64 for storage
+      const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("raw", encryptionKey))));
+      
+      const casResult = await uploadKeyToCAS({
+        sessionName,
+        encryptionKey: keyBase64,
+        assetType: assetTypeName,
+        ipfsHash: encryptedAssetHash,
+      });
+
+      if (!casResult.success) {
+        console.warn("CAS upload failed, storing key locally:", casResult.error);
+        // Fallback: store key locally (for testing only!)
+        storeKeyLocally(encryptedAssetHash, keyBase64);
+        console.log("Key stored locally for testing");
+      } else {
+        console.log("Key uploaded to CAS, session:", casResult.sessionName);
+      }
+
+      // Step 5: Convert manifest to YAML and upload to IPFS
       setUploadProgress("Uploading manifest to IPFS...");
       const manifestYAML = objectToYAML(manifest);
       const manifestCID = await uploadToIPFS(manifestYAML);
       const manifestUri = `ipfs://${manifestCID}`;
       console.log("Manifest uploaded to IPFS:", manifestUri);
 
-      // Extract CID from encrypted asset URI (remove ipfs:// prefix for storage)
-      const encryptedAssetHash = encryptedAssetCID.replace(/^ipfs:\/\//, "");
-      const manifestHash = manifestCID;
-
       // Use the hashes (CIDs) for blockchain storage
       const encryptedUri = `ipfs://${encryptedAssetHash}`;
       
-      setUploadProgress("Registration complete!");
+      setUploadProgress("Registering on blockchain...");
 
     // Convert bloom filter to bytes (if provided)
     let bloomFilterBytes: `0x${string}` = "0x" as `0x${string}`;

@@ -6,7 +6,7 @@
 # - LAS (SCONE Local Attestation Service)
 #
 # Access from local machine via SSH tunnel:
-#   ssh -L 8080:localhost:8080 -L 5001:localhost:5001 user@vm
+#   ssh -L 8080:localhost:8080 -L 5001:localhost:5001 -L 8081:localhost:8081 user@vm
 
 services:
   # ===========================================
@@ -18,7 +18,7 @@ services:
     ports:
       - "4001:4001"      # Swarm (P2P)
       - "5001:5001"      # API
-      - "8081:8080"      # Gateway (using 8081 to avoid conflict with executor)
+      - "8080:8080"      # Gateway
     volumes:
       - ipfs_data:/data/ipfs
     environment:
@@ -31,9 +31,9 @@ services:
     build: ./api
     container_name: dnat-executor-api
     ports:
-      - "8080:8080"
+      - "8081:8081"
     environment:
-      PORT: "8080"
+      PORT: "8081"
       DEBUG: "true"
       # Blockchain RPC - connect to local machine via SSH tunnel reverse
       BLOCKCHAIN_RPC: "http://host.docker.internal:8545"
