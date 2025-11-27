@@ -25,10 +25,16 @@ def get_session_digest():
         f"https://{CAS_URL}:8081/session/{SESSION_NAME}"
     ], capture_output=True, text=True)
     
-    # Extract digest from response
+    # Extract digest from response (try both YAML and JSON formats)
     match = re.search(r'digest:\s*([a-f0-9]+)', result.stdout)
     if match:
         return match.group(1)
+    
+    # Try JSON format
+    match = re.search(r'"hash":\s*"([a-f0-9]+)"', result.stdout)
+    if match:
+        return match.group(1)
+    
     return None
 
 def main():
