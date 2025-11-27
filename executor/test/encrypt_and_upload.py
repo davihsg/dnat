@@ -59,9 +59,22 @@ secrets:
     with open("session.yaml", 'w') as f:
         f.write(session_content)
     
-    print(f"\nSession file generated: session.yaml")
-    print(f"\nUpload to CAS with:")
-    print(f"  scone session create session.yaml --cas {CAS_URL}")
+    print(f"Session file generated: session.yaml")
+    
+    # Upload to CAS
+    print(f"Uploading session to CAS ({CAS_URL})...")
+    result = subprocess.run(
+        ["scone", "session", "create", "session.yaml", "--cas", CAS_URL],
+        capture_output=True,
+        text=True
+    )
+    
+    if result.returncode == 0:
+        print("Session uploaded successfully!")
+        print(result.stdout)
+    else:
+        print(f"Upload failed: {result.stderr}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
