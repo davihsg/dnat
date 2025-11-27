@@ -154,18 +154,28 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
     try:
         # Spawn Docker container with SCONE enclave
         enclave_image = os.environ.get("ENCLAVE_IMAGE", "dnat-enclave")
-        cas_url = os.environ.get("CAS_URL", "scone-cas.cf")
+        cas_url = os.environ.get("SCONE_CAS_ADDR", "scone-cas.cf")
+        las_addr = os.environ.get("SCONE_LAS_ADDR", "localhost")
         scone_config_id = os.environ.get("SCONE_CONFIG_ID", "")
+        
+        if not scone_config_id:
+            return {
+                "success": False,
+                "error": "SCONE_CONFIG_ID not set. Format: <session_name>/<service_name>",
+            }
         
         cmd = [
             "docker", "run", "--rm",
             "--device=/dev/sgx_enclave:/dev/sgx_enclave",
             "--device=/dev/sgx_provision:/dev/sgx_provision",
+            "--network=host",
             "-v", f"{data_dir}:/data:ro",
             "-e", f"SCONE_CAS_ADDR={cas_url}",
+            "-e", f"SCONE_LAS_ADDR={las_addr}",
             "-e", f"SCONE_CONFIG_ID={scone_config_id}",
             "-e", "SCONE_MODE=HW",
             "-e", "SCONE_LOG=3",
+            "-e", "SCONE_ALLOW_DLOPEN=2",
             enclave_image,
             "python", "/app/execute.py",
             "--dataset", "/data/dataset.enc",
