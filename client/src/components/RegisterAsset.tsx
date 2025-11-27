@@ -186,15 +186,11 @@ export default function RegisterAsset() {
       });
 
       if (!casResult.success) {
-        console.warn("CAS upload failed, storing key locally:", casResult.error);
-        // Fallback: store key locally (for testing only!)
-        storeKeyLocally(encryptedAssetHash, keyBase64, sessionName);
-        console.log("Key stored locally for testing");
-      } else {
-        console.log("Key uploaded to CAS, session:", casResult.sessionName);
+        throw new Error(`CAS upload failed: ${casResult.error}`);
       }
       
-      // Also store locally for reference
+      console.log("Key uploaded to CAS, session:", casResult.sessionName);
+      // Store locally for reference
       storeKeyLocally(encryptedAssetHash, keyBase64, sessionName);
 
       // Step 5: Convert manifest to YAML and upload to IPFS

@@ -190,33 +190,63 @@ def cas_upload():
         session_name = data.get("sessionName")
         session_yaml = data.get("sessionYAML")
         
+        print(f"[CAS] Upload request for session: {session_name}")
+        
         if not session_yaml:
+            print("[CAS] Error: Missing sessionYAML")
             return jsonify({"success": False, "error": "Missing sessionYAML"}), 400
+        
+        print(f"[CAS] Session YAML length: {len(session_yaml)} bytes")
+        print(f"[CAS] CAS URL: {CAS_URL}")
+        print(f"[CAS] Cert path: {CAS_CERT} (exists: {os.path.exists(CAS_CERT)})")
+        print(f"[CAS] Key path: {CAS_KEY} (exists: {os.path.exists(CAS_KEY)})")
+        
+        if not os.path.exists(CAS_CERT):
+            print(f"[CAS] Error: Certificate not found at {CAS_CERT}")
+            return jsonify({"success": False, "error": f"Certificate not found: {CAS_CERT}"}), 500
+        
+        if not os.path.exists(CAS_KEY):
+            print(f"[CAS] Error: Key not found at {CAS_KEY}")
+            return jsonify({"success": False, "error": f"Key not found: {CAS_KEY}"}), 500
         
         # Save to temp file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             f.write(session_yaml)
             yaml_path = f.name
         
+        print(f"[CAS] Saved session to temp file: {yaml_path}")
+        
         # Upload to CAS using curl
-        result = subprocess.run([
+        cmd = [
             "curl", "-k", "-s",
             "--cert", CAS_CERT,
             "--key", CAS_KEY,
             "--data-binary", f"@{yaml_path}",
             "-X", "POST",
             f"https://{CAS_URL}:8081/session"
-        ], capture_output=True, text=True, timeout=30)
+        ]
+        print(f"[CAS] Running: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         
         os.unlink(yaml_path)
         
+        print(f"[CAS] curl exit code: {result.returncode}")
+        print(f"[CAS] curl stdout: {result.stdout}")
+        print(f"[CAS] curl stderr: {result.stderr}")
+        
         response_text = result.stdout
         if "hash" in response_text or "Created Session" in response_text:
+            print(f"[CAS] Success! Session uploaded: {session_name}")
             return jsonify({"success": True, "sessionName": session_name, "response": response_text})
         else:
-            return jsonify({"success": False, "error": response_text}), 500
+            print(f"[CAS] Failed! Response: {response_text}")
+            return jsonify({"success": False, "error": response_text or result.stderr or "Unknown error"}), 500
             
     except Exception as e:
+        print(f"[CAS] Exception: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
 
