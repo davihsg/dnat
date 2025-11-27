@@ -21,4 +21,5 @@ services:
       SCONE_CAS_ADDR: scone-cas.cf
       SCONE_LAS_ADDR: las
       SCONE_CONFIG_ID: dnat-test-davi/executor
+      SCONE_ALLOW_DLOPEN: "2"
 
