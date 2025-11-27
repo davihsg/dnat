@@ -95,9 +95,6 @@ secrets:
   - name: CODE_KEY
     kind: ascii
     value: "{key_b64}"
-    export:
-      - session: {SESSION_NAME}
-        service: executor
 """
     
     with open("session.yaml", 'w') as f:
