@@ -135,11 +135,36 @@ def create_execution_session(dataset_session: str, app_session: str, execution_i
     """
     session_name = f"dnat-executor"
     
-    # Build session YAML that imports keys from asset sessions
-    mrenclave_line = f"    mrenclaves: [{MRENCLAVE}]" if MRENCLAVE else ""
-    
-    session_yaml = f"""name: {session_name}
+    # Upload to CAS
+    try:
+        if not os.path.exists(CAS_CERT) or not os.path.exists(CAS_KEY):
+            return False, f"CAS certificates not found: {CAS_CERT}, {CAS_KEY}"
+        
+        # First, try to get the existing session hash (for updates)
+        predecessor_hash = None
+        get_cmd = [
+            "curl", "-k", "-s",
+            "--cert", CAS_CERT,
+            "--key", CAS_KEY,
+            f"https://{CAS_URL}:8081/session/{session_name}"
+        ]
+        
+        get_result = subprocess.run(get_cmd, capture_output=True, text=True, timeout=30)
+        if get_result.returncode == 0 and "hash" in get_result.stdout:
+            try:
+                existing = json.loads(get_result.stdout)
+                predecessor_hash = existing.get("hash")
+                logger.info(f"[CAS] Found existing session, predecessor hash: {predecessor_hash}")
+            except json.JSONDecodeError:
+                pass
+        
+        # Build session YAML that imports keys from asset sessions
+        mrenclave_line = f"    mrenclaves: [{MRENCLAVE}]" if MRENCLAVE else ""
+        predecessor_line = f"predecessor: {predecessor_hash}" if predecessor_hash else ""
+        
+        session_yaml = f"""name: {session_name}
 version: "0.3.10"
+{predecessor_line}
 
 security:
   attestation:
@@ -166,11 +191,6 @@ secrets:
       session: {app_session}
       secret: APPLICATION_KEY
 """
-    
-    # Upload to CAS
-    try:
-        if not os.path.exists(CAS_CERT) or not os.path.exists(CAS_KEY):
-            return False, f"CAS certificates not found: {CAS_CERT}, {CAS_KEY}"
         
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             f.write(session_yaml)
@@ -185,7 +205,7 @@ secrets:
             f"https://{CAS_URL}:8081/session"
         ]
         
-        logger.info(f"[CAS] Creating execution session: {session_name}")
+        logger.info(f"[CAS] Creating/updating execution session: {session_name}")
         logger.info(f"[CAS] Importing DATASET_KEY from: {dataset_session}")
         logger.info(f"[CAS] Importing APP_KEY from: {app_session}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -301,7 +321,7 @@ def health():
 @app.route("/cas/upload", methods=["POST"])
 def cas_upload():
     """
-    Upload a session to CAS.
+    Upload a session to CAS (creates or updates).
     
     Request body:
     {
@@ -332,6 +352,35 @@ def cas_upload():
         if not os.path.exists(CAS_KEY):
             logger.error(f"[CAS] Error: Key not found at {CAS_KEY}")
             return jsonify({"success": False, "error": f"Key not found: {CAS_KEY}"}), 500
+        
+        # First, check if session already exists (get predecessor hash)
+        predecessor_hash = None
+        if session_name:
+            get_cmd = [
+                "curl", "-k", "-s",
+                "--cert", CAS_CERT,
+                "--key", CAS_KEY,
+                f"https://{CAS_URL}:8081/session/{session_name}"
+            ]
+            get_result = subprocess.run(get_cmd, capture_output=True, text=True, timeout=30)
+            if get_result.returncode == 0 and "hash" in get_result.stdout:
+                try:
+                    existing = json.loads(get_result.stdout)
+                    predecessor_hash = existing.get("hash")
+                    logger.info(f"[CAS] Found existing session, predecessor hash: {predecessor_hash}")
+                except json.JSONDecodeError:
+                    pass
+        
+        # If predecessor exists, insert it into the YAML after version line
+        if predecessor_hash:
+            lines = session_yaml.split('\n')
+            new_lines = []
+            for line in lines:
+                new_lines.append(line)
+                if line.startswith('version:'):
+                    new_lines.append(f'predecessor: {predecessor_hash}')
+            session_yaml = '\n'.join(new_lines)
+            logger.info(f"[CAS] Updated session YAML with predecessor")
         
         # Save to temp file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
