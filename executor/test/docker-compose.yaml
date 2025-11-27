@@ -1,0 +1,23 @@
+services:
+  las:
+    image: registry.scontain.com/sconecuratedimages/las
+    user: root
+    devices:
+      - "/dev/sgx_enclave:/dev/sgx_enclave"
+      - "/dev/sgx_provision:/dev/sgx_provision"
+    ports:
+      - "18766:18766"
+
+  executor:
+    build: .
+    depends_on:
+      - las
+    devices:
+      - "/dev/sgx_enclave:/dev/sgx_enclave"
+    volumes:
+      - ./:/data:ro
+    environment:
+      SCONE_CAS_ADDR: scone-cas.cf
+      SCONE_LAS_ADDR: las
+      SCONE_CONFIG_ID: dnat-test/executor
+

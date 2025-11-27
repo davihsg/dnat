@@ -1,0 +1,13 @@
+services:
+    las:
+        user: root
+        image: registry.scontain.com/sconecuratedimages/las
+        devices:
+          - "/dev/sgx_enclave:/dev/sgx_enclave"
+          - "/dev/sgx_provision:/dev/sgx_provision"
+        restart: on-failure
+        ports:
+          - target: 18766
+            published: 18766
+            protocol: tcp
+            mode: host
