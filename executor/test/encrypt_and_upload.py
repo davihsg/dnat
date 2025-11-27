@@ -96,7 +96,7 @@ secrets:
     kind: ascii
     value: "{key_b64}"
     export:
-      - session: $SELF
+      - session: {SESSION_NAME}
         service: executor
 """
     
