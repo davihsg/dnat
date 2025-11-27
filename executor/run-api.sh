@@ -14,7 +14,7 @@ export ENCLAVE_IMAGE="dnat-enclave"
 # SCONE configuration
 export SCONE_CAS_ADDR="${SCONE_CAS_ADDR:-scone-cas.cf}"
 export SCONE_LAS_ADDR="${SCONE_LAS_ADDR:-localhost}"
-export MRENCLAVE="${MRENCLAVE:-}"  # Optional: restrict to specific enclave hash
+export MRENCLAVE="${MRENCLAVE:-1a2b}"  # Optional: restrict to specific enclave hash
 
 # CAS certificate paths
 export CAS_CERT="../certs/client.crt"

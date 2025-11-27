@@ -133,7 +133,7 @@ def create_execution_session(dataset_session: str, app_session: str, execution_i
     
     Returns (success, session_name or error).
     """
-    session_name = f"dnat-exec-{execution_id}"
+    session_name = f"dnat-executor"
     
     # Build session YAML that imports keys from asset sessions
     mrenclave_line = f"    mrenclaves: [{MRENCLAVE}]" if MRENCLAVE else ""
