@@ -270,10 +270,7 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, session_name: str, para
             "-e", "SCONE_LOG=3",
             "-e", "SCONE_ALLOW_DLOPEN=2",
             enclave_image,
-            "python", "/app/execute.py",
-            "--dataset", "/data/dataset.enc",
-            "--application", "/data/application.enc",
-            "--params", f"/data/params.json"
+            "python", "/app/execute.py"
         ]
         
         logger.info(f"[ENCLAVE] Running: {' '.join(cmd)}")

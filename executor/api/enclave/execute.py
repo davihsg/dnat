@@ -15,7 +15,6 @@ Keys are injected by SCONE CAS as environment variables:
 
 import os
 import sys
-import argparse
 import base64
 import json
 from Crypto.Cipher import AES
@@ -79,11 +78,11 @@ def run_application(app_code: str, dataset: bytes, params: dict) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Execute application in SGX enclave")
-    parser.add_argument("--dataset", required=True, help="Path to encrypted dataset")
-    parser.add_argument("--application", required=True, help="Path to encrypted application")
-    parser.add_argument("--params", default="{}", help="JSON params or path to params file")
-    args = parser.parse_args()
+    # Use fixed paths (mounted by the executor API)
+    # These can be overridden via environment variables
+    dataset_path = os.environ.get("DATASET_PATH", "/data/dataset.enc")
+    app_path = os.environ.get("APP_PATH", "/data/application.enc")
+    params_path = os.environ.get("PARAMS_PATH", "/data/params.json")
     
     # Get keys from environment (injected by SCONE CAS after attestation)
     dataset_key = os.environ.get("DATASET_KEY")
@@ -93,12 +92,11 @@ def main():
         print("Error: Decryption keys not found. CAS attestation may have failed.", file=sys.stderr)
         sys.exit(1)
     
-    # Load params (from file or JSON string)
-    if os.path.isfile(args.params):
-        with open(args.params, 'r') as f:
+    # Load params from file
+    params = {}
+    if os.path.isfile(params_path):
+        with open(params_path, 'r') as f:
             params = json.load(f)
-    else:
-        params = json.loads(args.params)
     
     print("=" * 50)
     print("SGX Enclave Execution")
@@ -108,7 +106,7 @@ def main():
     # Step 1: Decrypt dataset
     print("Decrypting dataset...")
     try:
-        dataset = decrypt_data(args.dataset, dataset_key)
+        dataset = decrypt_data(dataset_path, dataset_key)
         print(f"  Dataset decrypted: {len(dataset)} bytes")
     except Exception as e:
         print(f"Error decrypting dataset: {e}", file=sys.stderr)
@@ -117,7 +115,7 @@ def main():
     # Step 2: Decrypt application
     print("Decrypting application...")
     try:
-        app_code = decrypt_data(args.application, app_key).decode('utf-8')
+        app_code = decrypt_data(app_path, app_key).decode('utf-8')
         print(f"  Application decrypted: {len(app_code)} bytes")
     except Exception as e:
         print(f"Error decrypting application: {e}", file=sys.stderr)
