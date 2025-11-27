@@ -12,6 +12,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 CAS_URL = "scone-cas.cf"
 SESSION_NAME = "dnat-test"
+CERT_PATH = "conf/client.crt"
+KEY_PATH = "conf/client.key"
 
 def main():
     if len(sys.argv) < 2:
@@ -19,6 +21,11 @@ def main():
         sys.exit(1)
     
     filepath = sys.argv[1]
+    
+    # Check certificate exists
+    if not os.path.exists(CERT_PATH) or not os.path.exists(KEY_PATH):
+        print("Error: Certificate not found. Run ./generate_cert.sh first")
+        sys.exit(1)
     
     # Read plaintext
     with open(filepath, 'rb') as f:
@@ -63,10 +70,12 @@ secrets:
     
     print(f"Session: {SESSION_NAME}")
     
-    # Upload to CAS using curl (insecure, no client cert)
+    # Upload to CAS using curl with client certificate
     print(f"Uploading session to CAS ({CAS_URL})...")
     result = subprocess.run([
         "curl", "-k", "-s",
+        "--cert", CERT_PATH,
+        "--key", KEY_PATH,
         "--data-binary", "@session.yaml",
         "-X", "POST",
         f"https://{CAS_URL}:8081/session"
