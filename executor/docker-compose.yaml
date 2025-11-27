@@ -1,0 +1,70 @@
+# DNAT Executor Stack (runs on VM)
+#
+# This docker-compose runs:
+# - IPFS node (stores encrypted data)
+# - Executor API (receives execution requests)
+# - LAS (SCONE Local Attestation Service)
+#
+# Access from local machine via SSH tunnel:
+#   ssh -L 8080:localhost:8080 -L 5001:localhost:5001 user@vm
+
+services:
+  # ===========================================
+  # IPFS - Stores encrypted datasets and apps
+  # ===========================================
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: dnat-ipfs
+    ports:
+      - "4001:4001"      # Swarm (P2P)
+      - "5001:5001"      # API
+      - "8081:8080"      # Gateway (using 8081 to avoid conflict with executor)
+    volumes:
+      - ipfs_data:/data/ipfs
+    environment:
+      - IPFS_PROFILE=server
+
+  # ===========================================
+  # Executor API - Receives execution requests
+  # ===========================================
+  api:
+    build: ./api
+    container_name: dnat-executor-api
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DEBUG: "true"
+      # Blockchain RPC - connect to local machine via SSH tunnel reverse
+      BLOCKCHAIN_RPC: "http://host.docker.internal:8545"
+      CONTRACT_ADDRESS: "${CONTRACT_ADDRESS:-0x5FbDB2315678afecb367f032d93F642f64180aa3}"
+      # IPFS gateway - local container
+      IPFS_GATEWAY: "http://ipfs:8080/ipfs"
+      # Enclave path
+      ENCLAVE_PATH: "/app/enclave"
+      # Keys (for testing - in production from CAS)
+      DATASET_KEY: "${DATASET_KEY}"
+      APP_KEY: "${APP_KEY}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./api/enclave:/app/enclave
+    depends_on:
+      - ipfs
+
+  # ===========================================
+  # SCONE LAS - Local Attestation Service
+  # ===========================================
+  las:
+    image: registry.scontain.com/sconecuratedimages/las
+    container_name: dnat-las
+    user: root
+    devices:
+      - "/dev/sgx_enclave:/dev/sgx_enclave"
+      - "/dev/sgx_provision:/dev/sgx_provision"
+    ports:
+      - "18766:18766"
+
+volumes:
+  ipfs_data:
+

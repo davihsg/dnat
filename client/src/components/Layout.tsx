@@ -171,6 +171,9 @@ export default function Layout({ children }: LayoutProps) {
             <Button color="inherit" component={Link} href="/my-access">
               My Access
             </Button>
+            <Button color="inherit" component={Link} href="/execute">
+              Execute
+            </Button>
           </Box>
           <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
             {currentChain && (
