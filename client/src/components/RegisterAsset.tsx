@@ -155,12 +155,20 @@ export default function RegisterAsset() {
       // Step 1: Generate encryption key K
       setUploadProgress("Generating encryption key...");
       const encryptionKey = await generateEncryptionKey();
-      console.log("Encryption key generated (not stored)");
+      
+      // Export key immediately to verify it's the same throughout
+      const keyBytes = new Uint8Array(await crypto.subtle.exportKey("raw", encryptionKey));
+      const keyBase64 = btoa(String.fromCharCode(...keyBytes));
+      console.log("=== ENCRYPTION KEY GENERATED ===");
+      console.log("Key (b64):", keyBase64);
+      console.log("Key length:", keyBytes.length, "bytes");
 
       // Step 2: Encrypt the asset file
       setUploadProgress("Encrypting asset file...");
       const { encryptedBlob } = await encryptFile(assetFile, encryptionKey);
-      console.log("Asset encrypted");
+      console.log("Asset encrypted, size:", encryptedBlob.size, "bytes");
+      console.log("Original file size:", assetFile.size, "bytes");
+      console.log("Expected encrypted size:", 12 + assetFile.size + 16, "bytes (12 IV + data + 16 tag)");
 
       // Step 3: Upload encrypted asset to IPFS
       setUploadProgress("Uploading encrypted asset to IPFS...");
@@ -175,8 +183,9 @@ export default function RegisterAsset() {
       const assetTypeName = assetType === 0 ? "dataset" : "application";
       const sessionName = generateSessionName(assetTypeName, encryptedAssetHash);
       
-      // Convert encryption key to base64 for storage
-      const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("raw", encryptionKey))));
+      console.log("=== UPLOADING TO CAS ===");
+      console.log("Session name:", sessionName);
+      console.log("Key being uploaded (b64):", keyBase64);
       
       const casResult = await uploadKeyToCAS({
         sessionName,
@@ -189,7 +198,8 @@ export default function RegisterAsset() {
         throw new Error(`CAS upload failed: ${casResult.error}`);
       }
       
-      console.log("Key uploaded to CAS, session:", casResult.sessionName);
+      console.log("=== CAS UPLOAD SUCCESS ===");
+      console.log("Session:", casResult.sessionName);
       // Store locally for reference
       storeKeyLocally(encryptedAssetHash, keyBase64, sessionName);
 
