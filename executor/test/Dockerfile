@@ -1,7 +1,7 @@
 FROM registry.scontain.com/sconecuratedimages/apps:python3.10.5-alpine3.15-scone5.8-pre-release
 
 WORKDIR /app
-RUN pip install --no-cache-dir cryptography
+RUN pip install --no-cache-dir pycryptodome
 COPY executor.py /app/
 
 ENV SCONE_MODE=HW

@@ -24,10 +24,10 @@ except Exception as e:
     sys.exit(1)
 
 # Decrypt
-print("Importing cryptography...")
+print("Importing pycryptodome...")
 try:
     import base64
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from Crypto.Cipher import AES
     print("Import successful")
 except Exception as e:
     print(f"Import error: {e}")
@@ -36,9 +36,10 @@ except Exception as e:
 try:
     key = base64.b64decode(key_b64)
     nonce = data[:12]
-    ciphertext = data[12:]
-    aesgcm = AESGCM(key)
-    plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+    ciphertext = data[12:-16]  # Last 16 bytes are the tag
+    tag = data[-16:]
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    plaintext = cipher.decrypt_and_verify(ciphertext, tag)
     print("Decrypted successfully!")
     print("-" * 40)
     print(plaintext.decode())
