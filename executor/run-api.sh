@@ -14,7 +14,7 @@ export ENCLAVE_IMAGE="dnat-enclave"
 # SCONE configuration
 export SCONE_CAS_ADDR="${SCONE_CAS_ADDR:-scone-cas.cf}"
 export SCONE_LAS_ADDR="${SCONE_LAS_ADDR:-localhost}"
-export SCONE_CONFIG_ID="${SCONE_CONFIG_ID:-}"  # Format: <session_name>/<service_name>
+export MRENCLAVE="${MRENCLAVE:-}"  # Optional: restrict to specific enclave hash
 
 # CAS certificate paths
 export CAS_CERT="../certs/client.crt"
@@ -26,11 +26,7 @@ echo "IPFS Gateway: $IPFS_GATEWAY"
 echo "Enclave Image: $ENCLAVE_IMAGE"
 echo "SCONE CAS: $SCONE_CAS_ADDR"
 echo "SCONE LAS: $SCONE_LAS_ADDR"
-echo "SCONE Config ID: $SCONE_CONFIG_ID"
-
-if [ -z "$SCONE_CONFIG_ID" ]; then
-    echo "WARNING: SCONE_CONFIG_ID not set. Set it to <session_name>/<service_name>"
-fi
+echo "MRENCLAVE: ${MRENCLAVE:-<not set - permissive mode>}"
 
 python3 app.py
 

@@ -36,9 +36,6 @@ sys.stdout.reconfigure(line_buffering=True)
 app = Flask(__name__)
 CORS(app)
 
-# Local key storage (in-memory only - keys lost on restart)
-KEY_STORE = {}
-
 # Configuration
 BLOCKCHAIN_RPC = os.environ.get("BLOCKCHAIN_RPC", "http://localhost:8545")
 CONTRACT_ADDRESS = os.environ.get("CONTRACT_ADDRESS", "0x5FbDB2315678afecb367f032d93F642f64180aa3")
@@ -46,9 +43,10 @@ IPFS_GATEWAY = os.environ.get("IPFS_GATEWAY", "http://localhost:8080/ipfs")
 ENCLAVE_PATH = os.environ.get("ENCLAVE_PATH", "/app/enclave")
 
 # CAS Configuration
-CAS_URL = os.environ.get("CAS_URL", "scone-cas.cf")
+CAS_URL = os.environ.get("SCONE_CAS_ADDR", "scone-cas.cf")
 CAS_CERT = os.environ.get("CAS_CERT", "/app/certs/client.crt")
 CAS_KEY = os.environ.get("CAS_KEY", "/app/certs/client.key")
+MRENCLAVE = os.environ.get("MRENCLAVE", "")
 
 # Contract ABI (minimal - just what we need)
 CONTRACT_ABI = [
@@ -126,7 +124,86 @@ def check_access(user: str, dataset_uri: str, app_uri: str) -> bool:
         return False
 
 
-def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) -> dict:
+def create_execution_session(dataset_session: str, app_session: str, execution_id: str) -> tuple[bool, str]:
+    """
+    Create a CAS session for execution that imports keys from asset sessions.
+    
+    According to SCONE CAS docs, secrets can be imported from other sessions:
+    https://sconedocs.github.io/CAS_session_lang_0_3/#secret-sharing
+    
+    Returns (success, session_name or error).
+    """
+    session_name = f"dnat-exec-{execution_id}"
+    
+    # Build session YAML that imports keys from asset sessions
+    mrenclave_line = f"    mrenclaves: [{MRENCLAVE}]" if MRENCLAVE else ""
+    
+    session_yaml = f"""name: {session_name}
+version: "0.3.10"
+
+security:
+  attestation:
+    tolerate: [debug-mode, hyperthreading, insecure-igpu, outdated-tcb, software-hardening-needed]
+    ignore_advisories: "*"
+
+services:
+  - name: executor
+{mrenclave_line}
+    command: python /app/execute.py
+    environment:
+      DATASET_KEY: "$$SCONE::DATASET_KEY$$"
+      APP_KEY: "$$SCONE::APP_KEY$$"
+
+secrets:
+  - name: DATASET_KEY
+    kind: ascii
+    import:
+      session: {dataset_session}
+      secret: DATASET_KEY
+  - name: APP_KEY
+    kind: ascii
+    import:
+      session: {app_session}
+      secret: APPLICATION_KEY
+"""
+    
+    # Upload to CAS
+    try:
+        if not os.path.exists(CAS_CERT) or not os.path.exists(CAS_KEY):
+            return False, f"CAS certificates not found: {CAS_CERT}, {CAS_KEY}"
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            f.write(session_yaml)
+            yaml_path = f.name
+        
+        cmd = [
+            "curl", "-k", "-s",
+            "--cert", CAS_CERT,
+            "--key", CAS_KEY,
+            "--data-binary", f"@{yaml_path}",
+            "-X", "POST",
+            f"https://{CAS_URL}:8081/session"
+        ]
+        
+        logger.info(f"[CAS] Creating execution session: {session_name}")
+        logger.info(f"[CAS] Importing DATASET_KEY from: {dataset_session}")
+        logger.info(f"[CAS] Importing APP_KEY from: {app_session}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        os.unlink(yaml_path)
+        
+        logger.info(f"[CAS] Response: {result.stdout}")
+        
+        if "hash" in result.stdout or "Created Session" in result.stdout:
+            return True, session_name
+        else:
+            return False, result.stdout or result.stderr or "Unknown error"
+            
+    except Exception as e:
+        logger.exception(f"[CAS] Error creating execution session: {e}")
+        return False, str(e)
+
+
+def run_in_enclave(dataset_data: bytes, app_data: bytes, session_name: str, params: dict = None) -> dict:
     """
     Run the application over the dataset inside the SGX enclave.
     
@@ -156,13 +233,9 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
         enclave_image = os.environ.get("ENCLAVE_IMAGE", "dnat-enclave")
         cas_url = os.environ.get("SCONE_CAS_ADDR", "scone-cas.cf")
         las_addr = os.environ.get("SCONE_LAS_ADDR", "localhost")
-        scone_config_id = os.environ.get("SCONE_CONFIG_ID", "")
         
-        if not scone_config_id:
-            return {
-                "success": False,
-                "error": "SCONE_CONFIG_ID not set. Format: <session_name>/<service_name>",
-            }
+        # SCONE_CONFIG_ID = <session_name>/<service_name>
+        scone_config_id = f"{session_name}/executor"
         
         cmd = [
             "docker", "run", "--rm",
@@ -223,15 +296,6 @@ def run_in_enclave(dataset_data: bytes, app_data: bytes, params: dict = None) ->
 def health():
     """Health check endpoint."""
     return jsonify({"status": "healthy"})
-
-
-@app.route("/keys", methods=["GET"])
-def list_keys():
-    """List stored keys (for debugging)."""
-    return jsonify({
-        "count": len(KEY_STORE),
-        "keys": {k: {"type": v["type"], "sessionName": v["sessionName"]} for k, v in KEY_STORE.items()}
-    })
 
 
 @app.route("/cas/upload", methods=["POST"])
@@ -298,22 +362,6 @@ def cas_upload():
         response_text = result.stdout
         if "hash" in response_text or "Created Session" in response_text:
             logger.info(f"[CAS] Success! Session uploaded: {session_name}")
-            
-            # Also store key locally for testing (extract from session YAML)
-            # Parse the key from the YAML
-            import re
-            key_match = re.search(r'value:\s*"([^"]+)"', session_yaml)
-            ipfs_match = re.search(r'dnat-(dataset|application)-(\w+)', session_name)
-            if key_match and ipfs_match:
-                asset_type = ipfs_match.group(1)
-                ipfs_hash = ipfs_match.group(2)
-                KEY_STORE[ipfs_hash] = {
-                    "key": key_match.group(1),
-                    "type": asset_type,
-                    "sessionName": session_name
-                }
-                logger.info(f"[CAS] Stored key in memory for {asset_type} {ipfs_hash}")
-            
             return jsonify({"success": True, "sessionName": session_name, "response": response_text})
         else:
             logger.error(f"[CAS] Failed! Response: {response_text}")
@@ -412,13 +460,37 @@ def execute():
             logger.error(f"[EXEC] Error fetching app from IPFS: {e}")
             return jsonify({"success": False, "error": f"Failed to fetch app from IPFS: {e}"}), 500
         
-        # Step 4: Run in SGX enclave (keys injected by SCONE CAS after attestation)
-        logger.info("[EXEC] Step 4: Running in SGX enclave...")
-        result = run_in_enclave(dataset_data, app_data, params)
+        # Step 4: Derive CAS session names from IPFS hashes
+        logger.info("[EXEC] Step 4: Deriving CAS session names...")
+        dataset_cid = dataset_info["encryptedUri"].replace("ipfs://", "")[:16]
+        app_cid = app_info["encryptedUri"].replace("ipfs://", "")[:16]
+        
+        # Session names match what client created during registration
+        dataset_session = f"dnat-dataset-{dataset_cid}"
+        app_session = f"dnat-application-{app_cid}"
+        
+        logger.info(f"[EXEC] Dataset session: {dataset_session}")
+        logger.info(f"[EXEC] App session: {app_session}")
+        
+        # Step 5: Create execution session that imports keys from asset sessions
+        logger.info("[EXEC] Step 5: Creating execution session in CAS...")
+        import time
+        execution_id = str(int(time.time()))
+        
+        success, result_or_error = create_execution_session(dataset_session, app_session, execution_id)
+        if not success:
+            return jsonify({"success": False, "error": f"Failed to create CAS session: {result_or_error}"}), 500
+        
+        session_name = result_or_error
+        logger.info(f"[EXEC] Execution session created: {session_name}")
+        
+        # Step 6: Run in SGX enclave
+        logger.info("[EXEC] Step 6: Running in SGX enclave...")
+        result = run_in_enclave(dataset_data, app_data, session_name, params)
         logger.info(f"[EXEC] Enclave result: {result}")
         
-        # Step 5: Return results
-        logger.info("[EXEC] Step 5: Returning results")
+        # Step 7: Return results
+        logger.info("[EXEC] Step 7: Returning results")
         return jsonify({
             "success": result["success"],
             "output": result.get("output"),
