@@ -102,6 +102,15 @@ def main():
     print("=" * 50)
     print("Keys retrieved from CAS")
     
+    # Debug: show key and data info
+    print(f"  Dataset key length: {len(base64.b64decode(dataset_key))} bytes")
+    print(f"  App key length: {len(base64.b64decode(app_key))} bytes")
+    
+    with open(dataset_path, 'rb') as f:
+        data = f.read()
+    print(f"  Dataset file size: {len(data)} bytes")
+    print(f"  First 12 bytes (IV): {data[:12].hex()}")
+    
     # Step 1: Decrypt dataset
     print("Decrypting dataset...")
     try:
