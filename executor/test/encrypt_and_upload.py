@@ -12,7 +12,7 @@ import re
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 CAS_URL = "scone-cas.cf"
-SESSION_NAME = "dnat-test"
+SESSION_NAME = "dnat-test-davi"
 CERT_PATH = "conf/client.crt"
 KEY_PATH = "conf/client.key"
 
