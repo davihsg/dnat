@@ -78,7 +78,7 @@ def main():
     
     # Generate session file with the key
     session_content = f"""name: {SESSION_NAME}
-version: "0.3"
+version: "0.3.1"
 {predecessor_line}
 
 security:
