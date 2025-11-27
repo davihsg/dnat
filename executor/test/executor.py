@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import os
-import base64
+import sys
 
 print("Hello from SGX enclave!")
 
@@ -10,25 +10,40 @@ if key_b64:
     print(f"Secret received from CAS: {key_b64[:20]}...")
 else:
     print("No secret found in environment")
-    exit(1)
+    sys.exit(1)
 
 # Read encrypted file
 enc_path = '/data/hello.py.enc'
 print(f"Reading encrypted file: {enc_path}")
-with open(enc_path, 'rb') as f:
-    data = f.read()
-print(f"Read {len(data)} bytes")
+try:
+    with open(enc_path, 'rb') as f:
+        data = f.read()
+    print(f"Read {len(data)} bytes")
+except Exception as e:
+    print(f"Error reading file: {e}")
+    sys.exit(1)
 
 # Decrypt
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-key = base64.b64decode(key_b64)
-nonce = data[:12]
-ciphertext = data[12:]
-aesgcm = AESGCM(key)
-plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+print("Importing cryptography...")
+try:
+    import base64
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    print("Import successful")
+except Exception as e:
+    print(f"Import error: {e}")
+    sys.exit(1)
 
-print("Decrypted successfully!")
-print("-" * 40)
-print(plaintext.decode())
-print("-" * 40)
+try:
+    key = base64.b64decode(key_b64)
+    nonce = data[:12]
+    ciphertext = data[12:]
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+    print("Decrypted successfully!")
+    print("-" * 40)
+    print(plaintext.decode())
+    print("-" * 40)
+except Exception as e:
+    print(f"Decryption error: {e}")
+    sys.exit(1)
 
