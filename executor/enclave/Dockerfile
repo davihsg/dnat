@@ -3,11 +3,12 @@ FROM registry.scontain.com/sconecuratedimages/apps:python3.10.5-alpine3.15-scone
 WORKDIR /app
 
 # Install dependencies for ML/data processing
+# Using pinned versions with pre-built wheels for musllinux
 RUN pip install --no-cache-dir \
     pycryptodome \
     pandas \
     numpy \
-    scikit-learn
+    scikit-learn==1.5.2
 
 # Copy execution script
 COPY execute.py /app/
