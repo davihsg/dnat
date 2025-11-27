@@ -19,12 +19,12 @@ total_salary = sum(int(row['Salary']) for row in rows)
 avg_age = total_age / len(rows)
 avg_salary = total_salary / len(rows)
 
-print(f"Average age: {avg_age:.1f}")
-print(f"Average salary: ${avg_salary:,.2f}")
+print(f"Average age in dataset: {avg_age:.1f}")
+print(f"Average salary in dataset: ${avg_salary:,.2f}")
 
 # Find highest salary
 highest = max(rows, key=lambda x: int(x['Salary']))
-print(f"Highest earner: {highest['Name']} (${highest['Salary']})")
+print(f"Highest earner in dataset: {highest['Name']} (${highest['Salary']})")
 
 print("=== Analysis Complete ===")
 
