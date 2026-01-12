@@ -1,30 +1,45 @@
-# Simple application that analyzes the dataset
+# Data analysis application using pandas and numpy
 # Variables available: dataset (bytes), params (dict)
 
-import csv
+import pandas as pd
+import numpy as np
 from io import StringIO
 
-# Parse CSV dataset
+# Parse CSV dataset with pandas
 csv_data = dataset.decode('utf-8')
-reader = csv.DictReader(StringIO(csv_data))
-rows = list(reader)
+df = pd.read_csv(StringIO(csv_data))
 
-print("=== Dataset Analysis ===")
-print(f"Total records in dataset: {len(rows)}")
+print("=" * 50)
+print("CONFIDENTIAL DATA ANALYSIS (SGX Enclave)")
+print("=" * 50)
 
-# Calculate average age and salary
-total_age = sum(int(row['Age']) for row in rows)
-total_salary = sum(int(row['Salary']) for row in rows)
+# Basic statistics
+print(f"\n📊 Dataset Overview:")
+print(f"   Total records: {len(df)}")
+print(f"   Columns: {', '.join(df.columns)}")
 
-avg_age = total_age / len(rows)
-avg_salary = total_salary / len(rows)
+# Numeric analysis with numpy/pandas
+numeric_cols = df.select_dtypes(include=[np.number]).columns
+if len(numeric_cols) > 0:
+    print(f"\n📈 Numeric Analysis:")
+    for col in numeric_cols:
+        print(f"\n   {col}:")
+        print(f"      Mean: {df[col].mean():.2f}")
+        print(f"      Std Dev: {df[col].std():.2f}")
+        print(f"      Min: {df[col].min()}")
+        print(f"      Max: {df[col].max()}")
+        print(f"      Median: {df[col].median():.2f}")
 
-print(f"Average age in dataset: {avg_age:.1f}")
-print(f"Average salary in dataset: ${avg_salary:,.2f}")
+# Correlation analysis (if multiple numeric columns)
+if len(numeric_cols) > 1:
+    print(f"\n🔗 Correlation Matrix:")
+    corr = df[numeric_cols].corr()
+    print(corr.to_string())
 
-# Find highest salary
-highest = max(rows, key=lambda x: int(x['Salary']))
-print(f"Highest earner in dataset: {highest['Name']} (${highest['Salary']})")
+# Summary statistics
+print(f"\n📋 Full Statistics:")
+print(df.describe().to_string())
 
-print("=== Analysis Complete ===")
-
+print("\n" + "=" * 50)
+print("Analysis complete - executed in secure enclave")
+print("=" * 50)

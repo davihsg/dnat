@@ -121,17 +121,19 @@ export default function RegisterAsset() {
       return;
     }
 
-    // Validate and convert price to wei (user inputs wei directly)
+    // Validate and convert price from ETH to Wei
     let priceWei: bigint;
     try {
       const priceValue = price || "0";
-      if (!/^\d+$/.test(priceValue)) {
-        alert("Price must be a positive integer in Wei");
+      const priceNum = parseFloat(priceValue);
+      if (isNaN(priceNum) || priceNum < 0) {
+        alert("Price must be a valid positive number in ETH");
         return;
       }
-      priceWei = BigInt(priceValue);
+      // Convert ETH to Wei (1 ETH = 10^18 Wei)
+      priceWei = BigInt(Math.floor(priceNum * 1e18));
     } catch {
-      alert("Invalid price format. Please enter a valid number in Wei");
+      alert("Invalid price format. Please enter a valid number in ETH");
       return;
     }
 
@@ -417,14 +419,14 @@ export default function RegisterAsset() {
         </Typography>
         <TextField
           fullWidth
-          label="Price (Wei) *"
+          label="Price (ETH) *"
           type="number"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
           required
           sx={{ mb: 2 }}
-          inputProps={{ min: "0" }}
-          helperText="Enter price in Wei (1 ETH = 1,000,000,000,000,000,000 Wei)"
+          inputProps={{ min: "0", step: "0.001" }}
+          helperText="Enter price in ETH (e.g., 0.01 for 0.01 ETH)"
         />
 
         {assetType === 0 && (
